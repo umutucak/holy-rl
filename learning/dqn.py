@@ -27,7 +27,7 @@ class QNetwork(nn.Module):
 
     def forward(self, x:np.ndarray):
         """Feed forward.
-        
+
         Args:
         - `x (np.ndarray)`: Input observation of the network.
         """
@@ -41,8 +41,9 @@ if __name__ == "__main__":
     buffer_size:int = 10000 # experience replay buffer size
     gamma: float = 0.99 # discount factor
     batch_sze: int = 128 # batch size for experience replay buffer sampling
-    epsilon_max: float = 1 # starting epsilon value (exploration/exploitation)
+    epsilon: float = 1 # starting epsilon value (exploration/exploitation)
     epsilon_min:float = 0.05 # ending epsilon value
+    epsilon_decay:float = 0.001 # epsilon decay rate to go from max to min
     tnur: int = 1 # target network update rate
     tnuf: int = 1 # target network update frequency
     qntf: int = 10 # qnetwork training frequency
@@ -57,12 +58,13 @@ if __name__ == "__main__":
 
     # Utilize GPU for training if GPU present
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     # Initialize agent & target network
-    q_net = QNetwork(env=env).to(device)
+    q_net = QNetwork(env).to(device)
     target_net = QNetwork(env=env).to(device)
     optimizer = optim.Adam(q_net.parameters(), lr=lr)
 
+    # Initialize experience replay buffer
     erb = ReplayBuffer(
         buffer_size=buffer_size,
         observation_space=env.observation_space,
@@ -70,3 +72,30 @@ if __name__ == "__main__":
         device=device,
         handle_timeout_termination=False
     )
+
+    # gym env game loop start
+    obs, infos = env.reset(seed=seed)
+    for global_step in range(total_timesteps):
+        # getting an action using epsilon
+        if random.random() < epsilon: # exploration
+            action = env.action_space.sample() # random action
+        else: #exploitation
+            q_values = q_net(torch.Tensor(obs).to(device))
+            action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
+        epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
+
+        # Step through the environment to get obs and reward
+        next_obs, reward, term, trunc, infos = env.step(action)
+
+        # Enter data into experience replay buffer
+        erb.add(
+            obs=obs,
+            next_obs=next_obs,
+            action=action,
+            reward=reward,
+            done=term,
+            infos=infos
+        )
+
+        # update obs for next iter
+        obs = next_obs
