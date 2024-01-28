@@ -30,3 +30,19 @@ class QNetwork(nn.Module):
         - `x (np.ndarray)`: Input observation of the network.
         """
         return self.network(x)
+
+if __name__ == "__main__":
+    # Parameters
+    seed:int = 42 #rng seed
+    total_timesteps:int = 500000 # timestep max of an experiment
+    learning_rate:float = 0.01
+    buffer_size:int = 10000 # experience replay buffer size
+    gamma: float = 0.99 # discount factor
+    batch_sze: int = 128 # batch size for experience replay buffer sampling
+    epsilon_max: float = 1 # starting epsilon value (exploration/exploitation)
+    epsilon_min:float = 0.05 # ending epsilon value
+    tnur: int = 1 # target network update rate
+    tnuf: int = 1 # target network update frequency
+    qntf: int = 10 # qnetwork training frequency
+
+    env = gym.make("CartPole-v1")
