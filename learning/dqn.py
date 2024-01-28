@@ -22,7 +22,7 @@ class QNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
-            nn.Linear(84, np.array(env.action_space.shape).prod())
+            nn.Linear(84, env.action_space.n)
         )
 
     def forward(self, x:np.ndarray):
