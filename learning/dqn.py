@@ -124,8 +124,7 @@ if __name__ == "__main__":
                     with torch.no_grad():
                         # computing the TD Target
                         target_max, _ = target_net(data.next_observations).max(dim=1)
-                        td_target = data.rewards + gamma * target_max * (1 - data.dones)
-
+                        td_target = data.rewards.reshape(target_max.shape) + gamma * target_max# * (1 - data.dones)
                     # computing current q_values
                     value = q_net(data.observations).gather(1, data.actions).squeeze()
 
