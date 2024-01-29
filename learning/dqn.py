@@ -38,17 +38,17 @@ if __name__ == "__main__":
     # Parameters
     seed:int = 42 #rng seed
     # total_timesteps:int = 50000 # timestep max of an experiment
-    episodes:int = 1000 # max episodes
-    lr:float = 0.01
+    episodes:int = 100000 # max episodes
+    lr:float = 0.00001
     buffer_size:int = 10000 # experience replay buffer size
     gamma: float = 0.99 # discount factor
     batch_size: int = 128 # batch size for experience replay buffer sampling
     epsilon: float = 1 # starting epsilon value (exploration/exploitation)
     epsilon_min:float = 0.05 # ending epsilon value
-    epsilon_decay:float = 0.001 # epsilon decay rate to go from max to min
-    training_start:int = 1000 # steps needed before training begins
+    epsilon_decay:float = 0.00001 # epsilon decay rate to go from max to min
+    training_start:int = 10000 # steps needed before training begins
     tnur: int = 1 # target network update rate
-    tnuf: int = 1 # target network update frequency
+    tnuf: int = 1000 # target network update frequency
     qntf: int = 10 # qnetwork training frequency
 
     # Initialize RNG seed
@@ -68,6 +68,7 @@ if __name__ == "__main__":
     # Target network is used to evaluate the progress of our DQN.
     # It represents the past policy from which we evaluate surplus reward gains.
     target_net = QNetwork(env=env).to(device)
+    target_net.load_state_dict(q_net.state_dict())
 
     # Initialize Experience Replay (ER) buffer
     # ER is used in DQN to avoid catastrophic forgetting.
@@ -86,8 +87,10 @@ if __name__ == "__main__":
     # Experiment begins
     # total steps in the entire experiment
     global_steps = 0
+    global_episode_rewards = np.empty(shape=(episodes,), dtype=np.int32)
     for _ in range(episodes):
         obs, infos = env.reset(seed=seed)
+        episode_rewards = 0
         done = False
         while not done:
             # getting an action using epsilon
@@ -97,12 +100,12 @@ if __name__ == "__main__":
                 q_values = q_net(torch.Tensor(obs).to(device))
                 action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
             epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
-
+            # print(epsilon)
             # Step through the environment to get obs and reward
             next_obs, reward, term, trunc, infos = env.step(action)
             global_steps += 1
+            episode_rewards += reward
             done = term or trunc
-
             # Enter data into experience replay buffer
             erb.add(
                 obs=obs,
@@ -112,10 +115,8 @@ if __name__ == "__main__":
                 done=term,
                 infos=infos
             )
-
             # update obs for next iter
             obs = next_obs
-
             # Training
             if global_steps > training_start:
                 # Agent
@@ -127,15 +128,14 @@ if __name__ == "__main__":
                         td_target = data.rewards.reshape(target_max.shape) + gamma * target_max# * (1 - data.dones)
                     # computing current q_values
                     value = q_net(data.observations).gather(1, data.actions).squeeze()
-
                     # computing the TD Loss
                     loss = F.mse_loss(td_target, value)
-
+                    # print("loss:", loss)
+                    # quit()
                     # Network optimization via backprop
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
-                
                 # Target
                 if global_steps % tnuf == 0:
                     # Copy the agent model into target network while using tnur
@@ -143,4 +143,7 @@ if __name__ == "__main__":
                         target_net_param.data.copy_(
                             tnur * q_net_param.data + (1.0 - tnur) * target_net_param.data
                         )
+        np.append(global_episode_rewards, episode_rewards)
+        print("episode rewards:", episode_rewards)
+        # quit()
     env.close()
