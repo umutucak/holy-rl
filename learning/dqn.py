@@ -100,7 +100,6 @@ if __name__ == "__main__":
                 q_values = q_net(torch.Tensor(obs).to(device))
                 action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
             epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
-            # print(epsilon)
             # Step through the environment to get obs and reward
             next_obs, reward, term, trunc, infos = env.step(action)
             global_steps += 1
@@ -125,13 +124,11 @@ if __name__ == "__main__":
                     with torch.no_grad():
                         # computing the TD Target
                         target_max, _ = target_net(data.next_observations).max(dim=1)
-                        td_target = data.rewards.reshape(target_max.shape) + gamma * target_max# * (1 - data.dones)
+                        td_target = data.rewards.flatten() + gamma * target_max * (1 - data.dones.flatten())
                     # computing current q_values
-                    value = q_net(data.observations).gather(1, data.actions).squeeze()
+                    value = q_net(data.observations).max(dim=1).values.flatten()
                     # computing the TD Loss
                     loss = F.mse_loss(td_target, value)
-                    # print("loss:", loss)
-                    # quit()
                     # Network optimization via backprop
                     optimizer.zero_grad()
                     loss.backward()
@@ -144,6 +141,4 @@ if __name__ == "__main__":
                             tnur * q_net_param.data + (1.0 - tnur) * target_net_param.data
                         )
         np.append(global_episode_rewards, episode_rewards)
-        print("episode rewards:", episode_rewards)
-        # quit()
     env.close()
