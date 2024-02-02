@@ -8,6 +8,7 @@ import random
 
 import gymnasium as gym
 import numpy as np
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -33,18 +34,22 @@ class QNetwork(nn.Module):
         - `x (np.ndarray)`: Input observation of the network.
         """
         return self.network(x)
+    
+def epsilon_decay(epsilon_max: float, epsilon_min: float, total_timesteps: int, current_timestep: int):
+    slope = (epsilon_min - epsilon_max) / total_timesteps
+    return max(slope * current_timestep + epsilon_max, epsilon_min)
 
 if __name__ == "__main__":
     # Parameters
     seed:int = 42 #rng seed
-    total_timesteps:int = 50000 # timestep max of an experiment
+    total_timesteps:int = 500000 # timestep max of an experiment
     lr:float = 2.5e-4
     buffer_size:int = 10000 # experience replay buffer size
     gamma: float = 0.99 # discount factor
     batch_size: int = 128 # batch size for experience replay buffer sampling
-    epsilon: float = 1 # starting epsilon value (exploration/exploitation)
+    epsilon_max: float = 1 # starting epsilon value (exploration/exploitation)
     epsilon_min:float = 0.05 # ending epsilon value
-    epsilon_decay:float = 0.001 # epsilon decay rate to go from max to min
+    epsilon_duration:float = 0.5 # time spent before min epsilon is reached
     training_start:int = 10000 # steps needed before training begins
     tnur: int = 1 # target network update rate
     tnuf: int = 500 # target network update frequency
@@ -86,14 +91,14 @@ if __name__ == "__main__":
     # Training begins
     obs, info = env.reset(seed=seed)
     done = False
-    for global_step in range(total_timesteps):
+    for global_step in tqdm(range(total_timesteps)):
         # getting an action using epsilon
+        epsilon = epsilon_decay(epsilon_max, epsilon_min, epsilon_duration * total_timesteps, global_step)
         if random.random() < epsilon: # exploration
             action = env.action_space.sample() # random action
         else: #exploitation
             q_values = q_net(torch.Tensor(obs).to(device))
             action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
-        epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
         # Step through the environment to get obs and reward
         next_obs, reward, term, trunc, info = env.step(action)
         done = term or trunc
@@ -132,14 +137,18 @@ if __name__ == "__main__":
                     target_net_param.data.copy_(
                         tnur * q_net_param.data + (1.0 - tnur) * target_net_param.data
                     )
+        if done:
+            env.reset()
     
     # Visual Testing Env
     env = gym.make("CartPole-v1", render_mode="human")
     obs, info = env.reset()
     done = False
-    while not done:
+    for step in range(1000):
         q_values = q_net(torch.Tensor(obs).to(device))
         action = torch.argmax(q_values).cpu().numpy() # best action
         obs, reward, term, trunc, info = env.step(action)
         done = term or trunc
+        if done:
+            env.reset()
     env.close()
