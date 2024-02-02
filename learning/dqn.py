@@ -37,18 +37,17 @@ class QNetwork(nn.Module):
 if __name__ == "__main__":
     # Parameters
     seed:int = 42 #rng seed
-    # total_timesteps:int = 50000 # timestep max of an experiment
-    episodes:int = 100000 # max episodes
-    lr:float = 0.00001
+    total_timesteps:int = 50000 # timestep max of an experiment
+    lr:float = 2.5e-4
     buffer_size:int = 10000 # experience replay buffer size
     gamma: float = 0.99 # discount factor
     batch_size: int = 128 # batch size for experience replay buffer sampling
     epsilon: float = 1 # starting epsilon value (exploration/exploitation)
     epsilon_min:float = 0.05 # ending epsilon value
-    epsilon_decay:float = 0.00001 # epsilon decay rate to go from max to min
+    epsilon_decay:float = 0.001 # epsilon decay rate to go from max to min
     training_start:int = 10000 # steps needed before training begins
     tnur: int = 1 # target network update rate
-    tnuf: int = 1000 # target network update frequency
+    tnuf: int = 500 # target network update frequency
     qntf: int = 10 # qnetwork training frequency
 
     # Initialize RNG seed
@@ -84,61 +83,63 @@ if __name__ == "__main__":
         handle_timeout_termination=False
     )
 
-    # Experiment begins
-    # total steps in the entire experiment
-    global_steps = 0
-    global_episode_rewards = np.empty(shape=(episodes,), dtype=np.int32)
-    for _ in range(episodes):
-        obs, infos = env.reset(seed=seed)
-        episode_rewards = 0
-        done = False
-        while not done:
-            # getting an action using epsilon
-            if random.random() < epsilon: # exploration
-                action = env.action_space.sample() # random action
-            else: #exploitation
-                q_values = q_net(torch.Tensor(obs).to(device))
-                action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
-            epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
-            # Step through the environment to get obs and reward
-            next_obs, reward, term, trunc, infos = env.step(action)
-            global_steps += 1
-            episode_rewards += reward
-            done = term or trunc
-            # Enter data into experience replay buffer
-            erb.add(
-                obs=obs,
-                next_obs=next_obs,
-                action=action,
-                reward=reward,
-                done=term,
-                infos=infos
-            )
-            # update obs for next iter
-            obs = next_obs
-            # Training
-            if global_steps > training_start:
-                # Agent
-                if global_steps % qntf == 0:
-                    data = erb.sample(batch_size)
-                    with torch.no_grad():
-                        # computing the TD Target
-                        target_max, _ = target_net(data.next_observations).max(dim=1)
-                        td_target = data.rewards.flatten() + gamma * target_max * (1 - data.dones.flatten())
-                    # computing current q_values
-                    value = q_net(data.observations).max(dim=1).values.flatten()
-                    # computing the TD Loss
-                    loss = F.mse_loss(td_target, value)
-                    # Network optimization via backprop
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                # Target
-                if global_steps % tnuf == 0:
-                    # Copy the agent model into target network while using tnur
-                    for target_net_param, q_net_param in zip(target_net.parameters(), q_net.parameters()):
-                        target_net_param.data.copy_(
-                            tnur * q_net_param.data + (1.0 - tnur) * target_net_param.data
-                        )
-        np.append(global_episode_rewards, episode_rewards)
+    # Training begins
+    obs, info = env.reset(seed=seed)
+    done = False
+    for global_step in range(total_timesteps):
+        # getting an action using epsilon
+        if random.random() < epsilon: # exploration
+            action = env.action_space.sample() # random action
+        else: #exploitation
+            q_values = q_net(torch.Tensor(obs).to(device))
+            action = torch.argmax(q_values).cpu().numpy() # action with highest q_value
+        epsilon = max(epsilon-epsilon_decay, epsilon_min) # decay the epsilon
+        # Step through the environment to get obs and reward
+        next_obs, reward, term, trunc, info = env.step(action)
+        done = term or trunc
+        # Enter data into experience replay buffer
+        erb.add(
+            obs=obs,
+            next_obs=next_obs,
+            action=action,
+            reward=reward,
+            done=term,
+            infos=info
+        )
+        # update obs for next iter
+        obs = next_obs
+        # Training
+        if global_step > training_start:
+            # Agent
+            if global_step % qntf == 0:
+                data = erb.sample(batch_size)
+                with torch.no_grad():
+                    # computing the TD Target
+                    target_max, _ = target_net(data.next_observations).max(dim=1)
+                    td_target = data.rewards.flatten() + gamma * target_max * (1 - data.dones.flatten())
+                # computing current q_values
+                value = q_net(data.observations).max(dim=1).values.flatten()
+                # computing the TD Loss
+                loss = F.mse_loss(td_target, value)
+                # Network optimization via backprop
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            # Target
+            if global_step % tnuf == 0:
+                # Copy the agent model into target network while using tnur
+                for target_net_param, q_net_param in zip(target_net.parameters(), q_net.parameters()):
+                    target_net_param.data.copy_(
+                        tnur * q_net_param.data + (1.0 - tnur) * target_net_param.data
+                    )
+    
+    # Visual Testing Env
+    env = gym.make("CartPole-v1", render_mode="human")
+    obs, info = env.reset()
+    done = False
+    while not done:
+        q_values = q_net(torch.Tensor(obs).to(device))
+        action = torch.argmax(q_values).cpu().numpy() # best action
+        obs, reward, term, trunc, info = env.step(action)
+        done = term or trunc
     env.close()
